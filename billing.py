@@ -1,7 +1,7 @@
 from tkinter import*
 from PIL import Image,ImageTk
 from tkinter import ttk,messagebox
-import sqlite3
+import mysql.connector
 import time
 import os
 import tempfile
@@ -10,25 +10,33 @@ class billClass:
     def __init__(self,root):
         self.root=root
         self.root.geometry("1350x700+110+80")
-        self.root.title("Inventory Management System | Nishant Gupta")
+        self.root.title("Inventory Management System")
         self.root.resizable(False,False)
         self.root.config(bg="white")
         self.cart_list=[]
         self.chk_print=0
 
+        # Database Configuration
+        self.db_config = {
+            'host': 'localhost',
+            'user': 'root',
+            'password': 'C@sper123',
+            'database': 'inventory_management'
+        }
+
         #------------- title --------------
-        self.icon_title=PhotoImage(file="Inventory-Management-System/images/logo1.png")
+        self.icon_title=PhotoImage(file=r"E:\Inventory-Management-System\images\logo1.png")
         title=Label(self.root,text="Inventory Management System",image=self.icon_title,compound=LEFT,font=("times new roman",40,"bold"),bg="#010c48",fg="white",anchor="w",padx=20).place(x=0,y=0,relwidth=1,height=70)
 
         #------------ logout button -----------
-        btn_logout=Button(self.root,text="Logout",font=("times new roman",15,"bold"),bg="yellow",cursor="hand2").place(x=1150,y=10,height=50,width=150)
+        btn_logout=Button(self.root,text="Logout",command=self.logout, font=("times new roman",15,"bold"),bg="yellow",cursor="hand2").place(x=1150,y=10,height=50,width=150)
 
         #------------ clock -----------------
         self.lbl_clock=Label(self.root,text="Welcome to Inventory Management System\t\t Date: DD:MM:YYYY\t\t Time: HH:MM:SS",font=("times new roman",15),bg="#4d636d",fg="white")
         self.lbl_clock.place(x=0,y=70,relwidth=1,height=30)
 
         #------------ footer -----------------
-        lbl_footer=Label(self.root,text="IMS-Inventory Management System | Developed by Nishant Gupta\nFor any Technical Issues Contact: 9899459288",font=("times new roman",10),bg="#4d636d",fg="white").pack(side=BOTTOM,fill=X)
+        lbl_footer=Label(self.root,text="IMS-Inventory Management System",font=("times new roman",10),bg="#4d636d",fg="white").pack(side=BOTTOM,fill=X)
 
         #-------------- product frame -----------------
         ProductFrame1=Frame(self.root,bd=4,relief=RIDGE,bg="white")
@@ -209,9 +217,16 @@ class billClass:
         btn_generate.place(x=246,y=80,width=160,height=50)
 
         self.show()
-        #self.bill_top()
         self.update_date_time()
-#---------------------- all functions ------------------------------
+
+    def get_mysql_connection(self):
+        try:
+            conn = mysql.connector.connect(**self.db_config)
+            return conn
+        except Exception as ex:
+            messagebox.showerror("Error", f"Database Connection Error: {str(ex)}", parent=self.root)
+            return None
+
     def get_input(self,num):
         xnum=self.var_cal_input.get()+str(num)
         self.var_cal_input.set(xnum)
@@ -224,25 +239,34 @@ class billClass:
         self.var_cal_input.set(eval(result))
 
     def show(self):
-        con=sqlite3.connect(database=r'ims.db')
-        cur=con.cursor()
+        conn = self.get_mysql_connection()
+        if conn is None:
+            return
+        
+        cur = conn.cursor()
         try:
-            cur.execute("select pid,name,price,qty,status from product where status='Active'")
+            cur.execute("SELECT pid, name, price, qty, status FROM product WHERE status='Active'")
             rows=cur.fetchall()
             self.product_Table.delete(*self.product_Table.get_children())
             for row in rows:
                 self.product_Table.insert('',END,values=row)
         except Exception as ex:
             messagebox.showerror("Error",f"Error due to : {str(ex)}")
+        finally:
+            cur.close()
+            conn.close()
 
     def search(self):
-        con=sqlite3.connect(database=r'ims.db')
-        cur=con.cursor()
+        conn = self.get_mysql_connection()
+        if conn is None:
+            return
+        
+        cur = conn.cursor()
         try:
             if self.var_search.get()=="":
                 messagebox.showerror("Error","Search input should be required",parent=self.root)
             else:
-                cur.execute("select pid,name,price,qty,status from product where name LIKE '%"+self.var_search.get()+"%'")
+                cur.execute("SELECT pid, name, price, qty, status FROM product WHERE name LIKE %s", ('%' + self.var_search.get() + '%',))
                 rows=cur.fetchall()
                 if len(rows)!=0:
                     self.product_Table.delete(*self.product_Table.get_children())
@@ -252,6 +276,9 @@ class billClass:
                     messagebox.showerror("Error","No record found!!!",parent=self.root)
         except Exception as ex:
             messagebox.showerror("Error",f"Error due to : {str(ex)}")
+        finally:
+            cur.close()
+            conn.close()
 
     def get_data(self,ev):
         f=self.product_Table.focus()
@@ -283,11 +310,9 @@ class billClass:
         elif int(self.var_qty.get())>int(self.var_stock.get()):
             messagebox.showerror("Error","Invalid Quantity",parent=self.root)
         else:
-            #price_cal=int(self.var_qty.get())*float(self.var_price.get())
-            #price_cal=float(price_cal)
             price_cal=self.var_price.get()
             cart_data=[self.var_pid.get(),self.var_pname.get(),price_cal,self.var_qty.get(),self.var_stock.get()]
-            #---------- update cart --------------
+            
             present="no"
             index_=0
             for row in self.cart_list:
@@ -301,7 +326,6 @@ class billClass:
                     if self.var_qty.get()=="0":
                         self.cart_list.pop(index_)
                     else:
-                        #self.cart_list[index_][2]=price_cal
                         self.cart_list[index_][3]=self.var_qty.get()
             else:
                 self.cart_list.append(cart_data)
@@ -311,7 +335,7 @@ class billClass:
     def bill_update(self):
         self.bill_amnt=0
         self.net_pay=0
-        self.siscount=0
+        self.discount=0
         for row in self.cart_list:
             self.bill_amnt=self.bill_amnt+(float(row[2])*int(row[3]))
         self.discount=(self.bill_amnt*5)/100
@@ -334,11 +358,8 @@ class billClass:
         elif len(self.cart_list)==0:
             messagebox.showerror("Error",f"Please Add product to the Cart!!!",parent=self.root)
         else:
-            #--------- bill top -----------------
             self.bill_top()
-            #--------- bill middle --------------
             self.bill_middle()
-            #--------- bill bottom --------------
             self.bill_bottom()
 
             fp=open(f'Inventory-Management-System/bill/{str(self.invoice)}.txt','w')
@@ -374,8 +395,11 @@ class billClass:
         self.txt_bill_area.insert(END,bill_bottom_temp)
 
     def bill_middle(self):
-        con=sqlite3.connect(database=r'ims.db')
-        cur=con.cursor()
+        conn = self.get_mysql_connection()
+        if conn is None:
+            return
+        
+        cur = conn.cursor()
         try:
             for row in self.cart_list:
                 pid=row[0]
@@ -388,17 +412,20 @@ class billClass:
                 price=float(row[2])*int(row[3])
                 price=str(price)
                 self.txt_bill_area.insert(END,"\n "+name+"\t\t\t"+row[3]+"\tRs."+price)
-                #------------- update qty in product table --------------
-                cur.execute("update product set qty=?,status=? where pid=?",(
+                
+                cur.execute("UPDATE product SET qty=%s, status=%s WHERE pid=%s", (
                     qty,
                     status,
                     pid
                 ))
-                con.commit()
-            con.close()
+            conn.commit()
             self.show()
         except Exception as ex:
+            conn.rollback()
             messagebox.showerror("Error",f"Error due to : {str(ex)}",parent=self.root)
+        finally:
+            cur.close()
+            conn.close()
 
     def clear_cart(self):
         self.var_pid.set("")
@@ -434,6 +461,12 @@ class billClass:
             os.startfile(new_file,'print')
         else:
             messagebox.showinfo("Print","Please generate bill to print the receipt",parent=self.root)
+
+    def logout(self):
+        op=messagebox.askyesno("Confirm","Do you really want to logout?",parent=self.root)
+        if op==True:
+            self.root.destroy()
+            os.system("python login.py")
 
 if __name__=="__main__":
     root=Tk()
